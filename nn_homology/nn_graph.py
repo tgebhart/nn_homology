@@ -187,7 +187,7 @@ def to_directed_networkx(params, input_size):
         params (list[numpy.array]): the weight (parameter) values of the network
             at each layer.
         input_size (tuple): the size of the first layer's input in form
-            (batch, channels, heigh, width).
+            (batch, channels, height, width).
 
     Returns:
         networkx.DiGraph: The networkx representation of the activation network.
@@ -315,6 +315,7 @@ def to_directed_networkx_activations(params, activations):
     return G
 
 def get_weights(model):
+    '''Helper function to retrieve named weights from pytorch model.'''
     params = []
     for name, param in model.named_parameters():
         if 'weight' in name:
@@ -323,6 +324,7 @@ def get_weights(model):
     return params
 
 def append_params(param_info, params):
+    '''Helper function to append pytorch parameters to parameter information.'''
     for i in range(len(param_info)):
         p = param_info[i]
         if p['layer_type'] == 'Conv2d' or p['layer_type'] == 'Linear':
@@ -332,6 +334,17 @@ def append_params(param_info, params):
     return param_info
 
 def get_activations(model, data):
+    '''Retrieves and returns the activations at each layer given an input `data`.
+
+    Args:
+        - model (pytorch model): the model from which to retrieve activations.
+        - data (torch.Tensor): the input whose activation values we are interested
+            in.
+
+    Returns:
+        list[torch.Tensor]: a list of torch tensors representing the activations
+            at each layer.
+    '''
     # a dictionary that keeps saving the activations as they come
     activations = collections.defaultdict(list)
     def save_activation(name, mod, inp, out):
@@ -356,6 +369,18 @@ def get_activations(model, data):
     return [v for k,v in activations.items()]
 
 def parameter_graph(model, param_info, input_size):
+    '''Returns a networkx DiGraph representation of the model's parameter graph.
+
+    Args:
+        model (pytorch model): the model from which to form the parameter graph.
+        param_info (list[dict]): a list of dictionaries describing the model's
+            architecture.
+        input_size (tuple): the size of the input at the first layer in form
+            (batch, channels, height, width).
+
+    Returns:
+        networkx.DiGraph: the parameter graph representation of the model.
+    '''
     # get parameters from named parameters of model
     params = get_weights(model)
 
@@ -365,6 +390,18 @@ def parameter_graph(model, param_info, input_size):
     return to_directed_networkx(param_info, input_size)
 
 def activation_graph(model, param_info, data):
+    '''Returns a networkx DiGraph representation of the model's activation graph
+    for a given input `data`.
+
+    Args:
+        model (pytorch model): the model from which to form the parameter graph.
+        param_info (list[dict]): a list of dictionaries describing the model's
+            architecture.
+        data (torch.Tensor): an input to the model.
+
+    Returns:
+        networkx.DiGraph: the activation graph representation of the model.
+    '''
     # get parameters from named parameters of model
     params = get_weights(model)
     # add `param` key to `param_info` list of dicts
