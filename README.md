@@ -43,3 +43,7 @@ Pytorch layer types currently implemented are:
 We currently do not track bias weights as part of the network graph. This
 functionality will be added in the future. For now, using networks without
 bias parameters is recommended (although not required).
+
+The max pooling operation is not well-defined in the case of parameter graphs.
+For max pooling layers in the parameter graph, the current approach is to pass
+forward the maximum weight of the previous layer's parameters for a given node.  
