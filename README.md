@@ -22,6 +22,12 @@ And if you want the package to compute homology for you (a la ripser.scikit-tda.
   - Cython
   - Ripser
 
+To install, run
+
+`$ pip install .` or if you want to edit the package `$ pip install -e .`.
+
+
+
 ### Limitations
 
 This package is very opinionated on the model format and the types of neural
