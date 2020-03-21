@@ -77,7 +77,7 @@ def conv_layer_as_matrix(X, X_names, W, stride, padding):
 
     return out, X_col, W_col, X_names_col
 
-def add_conv(self, G, input_size, p, name_this, name_next, stride, padding, next_linear=False, X=None, I=0, format_func=format_func, weight_func=inverse_abs_zero):
+def add_conv(G, input_size, p, name_this, name_next, stride, padding, next_linear=False, X=None, I=0, format_func=format_func, weight_func=inverse_abs_zero):
     '''Adds a convolutional layer to graph and returns updated graph. If X is
     given, compute the activation graph, otherwise compute the parameter graph.
 
@@ -186,7 +186,7 @@ def add_mp_act(G, X, name_this, name_next, kernel_size, stride, padding, weight_
     input_size = [mat.shape[0], input_channels, mat.shape[2], mat.shape[3]]
     return G, input_size
 
-def add_linear_linear(self, G, p, name_this, name_next, X=None, I=0, format_func=format_func, weight_func=inverse_abs_zero):
+def add_linear_linear(G, p, name_this, name_next, X=None, I=0, format_func=format_func, weight_func=inverse_abs_zero):
     '''Adds linear layer to graph and returns updated graph. If X is given,
     compute the activation graph, otherwise compute the parameter graph. This
     function creates a graphical representation of the matrix multiply operation.
@@ -533,7 +533,7 @@ class NNGraph(object):
         param_info = append_params(param_info, params)
         self.current_param_info = param_info
 
-        G  = to_directed_networkx(self.current_param_info, self.input_size)
+        G  = to_directed_networkx(self.current_param_info, self.input_size, format_func=self.format_func, weight_func=self.weight_func)
         self.graph_idx = np.array(nx.to_numpy_matrix(G, weight='idx', dtype='int'))
         self.graph_idx_vec = np.array(nx.to_numpy_matrix(G, weight='idx', dtype='int')).flatten()
         self.adj_vec = np.array(nx.to_numpy_matrix(G, weight='weight')).flatten()
