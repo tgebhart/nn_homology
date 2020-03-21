@@ -131,11 +131,7 @@ def add_conv(G, input_size, p, name_this, name_next, stride, padding, next_linea
     return G, input_size, wix+1
 
 # under construction
-<<<<<<< HEAD
 def add_mp(G, input_size, name_this, name_next, kernel_size, stride, padding, next_linear=False, format_func=format_func):
-=======
-def add_mp(G, input_size, name_this, name_next, kernel_size, stride, padding, next_linear=False):
->>>>>>> 8dab6bdbb7215e05f19e613f1998372e0b41a541
     '''adds max pooling layer to graph and returns updated graph'''
     p = np.ones((input_size[0],input_size[1],kernel_size[0],kernel_size[1]))
     input_channels = p.shape[1]
@@ -493,16 +489,9 @@ def flatten_params(param_info):
 
     return param_vec
 
-<<<<<<< HEAD
 class NNGraph(object):
 
     def __init__(self, weight_func=inverse_abs_zero, format_func=format_func, undirected=True):
-=======
-
-class NNGraph(object):
-
-    def __init__(self, weight_func=inverse_abs_zero, format_func=format_func):
->>>>>>> 8dab6bdbb7215e05f19e613f1998372e0b41a541
         '''NNGraph class for computing parameter graph of network.
 
         Args:
@@ -520,15 +509,12 @@ class NNGraph(object):
         self.input_size = None
         self.weight_func = weight_func
         self.format_func = format_func
-<<<<<<< HEAD
         self.undirected = undirected
 
     def update_indices(self):
         self.graph_idx = np.array(nx.to_numpy_matrix(self.G, weight='idx', dtype='int'))
         self.graph_idx_vec = np.array(nx.to_numpy_matrix(self.G, weight='idx', dtype='int')).flatten()
         self.adj_vec = np.array(nx.to_numpy_matrix(self.G, weight='weight')).flatten()
-=======
->>>>>>> 8dab6bdbb7215e05f19e613f1998372e0b41a541
 
     def parameter_graph(self, model, param_info, input_size):
         '''Returns a networkx DiGraph representation of the model's parameter graph.
@@ -550,7 +536,6 @@ class NNGraph(object):
         # add `param` key to `param_info` list of dicts
         param_info = append_params(param_info, params)
         self.current_param_info = param_info
-<<<<<<< HEAD
         G  = to_directed_networkx(self.current_param_info, self.input_size, format_func=self.format_func, weight_func=self.weight_func)
         if self.undirected:
             self.G = G.to_undirected()
@@ -561,29 +546,16 @@ class NNGraph(object):
         self.G = self.G.to_undirected()
         self.update_indices()
 
-=======
-
-        G  = to_directed_networkx(self.current_param_info, self.input_size, format_func=self.format_func, weight_func=self.weight_func)
-        self.graph_idx = np.array(nx.to_numpy_matrix(G, weight='idx', dtype='int'))
-        self.graph_idx_vec = np.array(nx.to_numpy_matrix(G, weight='idx', dtype='int')).flatten()
-        self.adj_vec = np.array(nx.to_numpy_matrix(G, weight='weight')).flatten()
-        self.G = G
-        return G
-
->>>>>>> 8dab6bdbb7215e05f19e613f1998372e0b41a541
     def get_adjacency(self):
         '''returns adjacency matrix from its flattened form.'''
         sq = int(np.sqrt(self.adj_vec.size))
         return np.reshape(self.adj_vec, (sq, sq))
 
-<<<<<<< HEAD
     def get_idx_adjacency(self):
         '''returns adjacency matrix from its flattened form.'''
         sq = int(np.sqrt(self.graph_idx_vec.size))
         return np.reshape(self.graph_idx_vec, (sq, sq))
 
-=======
->>>>>>> 8dab6bdbb7215e05f19e613f1998372e0b41a541
     def update_adjacency(self, model):
         '''Updates the parameter adjacency matrix given a model's parameters.
         This function assumes the input model is the same architecture as that
@@ -602,7 +574,6 @@ class NNGraph(object):
 
         self.param_vec = param_vec
         self.adj_vec[self.graph_idx_vec > 0] = self.weight_func(np.squeeze(np.take(param_vec, self.graph_idx_vec[self.graph_idx_vec > 0])))
-<<<<<<< HEAD
 
     def update_graph(self):
         node_names = list(self.G.nodes())
@@ -612,5 +583,3 @@ class NNGraph(object):
         G = nx.relabel_nodes(nx.from_numpy_matrix(adj, create_using=cu), name_dict)
         self.G = G
         return G
-=======
->>>>>>> 8dab6bdbb7215e05f19e613f1998372e0b41a541
