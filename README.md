@@ -44,6 +44,7 @@ Pytorch layer types currently implemented are:
     - we require dilation=1, groups=1, padding_mode='zeros'
   - MaxPool2d
     - we require dilation=1
+    - currently under construction
   - Linear
 
 We currently do not track bias weights as part of the network graph. This
