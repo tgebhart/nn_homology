@@ -107,8 +107,8 @@ def add_conv(G, input_size, p, name_this, name_next, stride, padding, next_linea
             Should take a single float-like argument and return a float-like argument.
 
     Returns:
-        (networkx.Graph, tuple, int): the updated networkx graph, a tuple
-            representing the new input size, and the running parameter index.
+        (networkx.Graph, tuple, int): a tuple representing the updated networkx graph,
+            the new input size, and the running parameter index.
     '''
     input_channels = p.shape[1]
     X = np.ones(input_size) if X is None else X
@@ -153,6 +153,8 @@ def add_mp(G, input_size, name_this, name_next, kernel_size, stride, padding, ne
                 node_name = format_func(name_this,c,xnames[row%filt_size,col])
                 ews = sorted(G.in_edges(node_name, data=True), key=lambda x: x[2]['weight'])
                 if len(ews) > 0:
+                    # grab smallest value as this should correspond to largest
+                    # weight before `weight_func` is applied.
                     v = ews[0][2]['weight']
                     wix = ews[0][2]['idx']
                     if next_linear:
@@ -259,6 +261,9 @@ def to_directed_networkx(params, input_size, format_func=format_func,
         param = params[l]
         # need to look ahead at next layer to get naming correct
         param_next = params[l+1]
+        # shortcuts are not actually layers, so skip the name
+        if param_next['layer_type'] == 'Shortcut':
+            param_next = params[l+2]
 
         print('Layer: {}'.format(param['name']))
 
@@ -302,6 +307,17 @@ def to_directed_networkx(params, input_size, format_func=format_func,
             G, I = add_linear_linear(G, param['param'], param['name'], param_next['name'],
                                     I=I, format_func=format_func, weight_func=weight_func,
                                     ignore_zeros=ignore_zeros)
+
+        elif param['layer_type'] == 'Shortcut':
+
+            # get the layers the shortcut connects
+            from_name = params[param['connects'][0]]
+            to_name = params[param['connects'][1]]
+            G, input_size, I = add_conv(G, input_size, param['param'], from_name,
+                                to_name, param['stride'],
+                                param['padding'], next_linear=False, I=I,
+                                format_func=format_func, weight_func=weight_func,
+                                ignore_zeros=ignore_zeros)
 
         else:
             raise ValueError('Layer type not implemented ')
@@ -404,7 +420,7 @@ def get_weights(model, tensors=False):
     '''Helper function to retrieve named weights from pytorch model.'''
     params = []
     for name, param in model.named_parameters():
-        if 'weight' in name:
+        if 'weight' in name and 'bn' not in name:
             if tensors:
                 pnum = param.data
             else:
@@ -417,8 +433,13 @@ def append_params(param_info, params):
     j = 0
     for i in range(len(param_info)):
         p = param_info[i]
-        if p['layer_type'] == 'Conv2d' or p['layer_type'] == 'Linear':
-            p['param'] = params[j]
+        if p['layer_type'] == 'Conv2d' or p['layer_type'] == 'Linear' or p['layer_type'] == 'Shortcut':
+            # if ndim == 1, probably batch norm, pass
+            if params[j].ndim > 1:
+                p['param'] = params[j]
+            else:
+                j += 1
+                p['param'] = params[j]
             j += 1
         else:
             p['param'] = None
@@ -579,6 +600,7 @@ class NNGraph(object):
         params = get_weights(model)
         # add `param` key to `param_info` list of dicts
         param_info = append_params(param_info, params)
+
         self.current_param_info = param_info
         G  = to_directed_networkx(self.current_param_info, self.input_size, format_func=self.format_func, weight_func=self.weight_func, ignore_zeros=ignore_zeros)
         if self.undirected:
@@ -589,11 +611,6 @@ class NNGraph(object):
     def symmetrize(self):
         self.G = self.G.to_undirected()
         self.update_indices()
-
-    # def get_adjacency(self):
-    #     '''returns adjacency matrix from its flattened form.'''
-    #     sq = int(np.sqrt(self.adj_vec.size))
-    #     return np.reshape(self.adj_vec, (sq, sq))
 
     def get_adjacency(self):
         '''returns adjacency matrix from its flattened form.'''
