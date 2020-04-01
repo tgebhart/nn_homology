@@ -579,7 +579,7 @@ class NNGraph(object):
         self.graph_idx_vec = np.array(nx.to_numpy_matrix(self.G, weight='idx', dtype='int'))[np.tril_indices(len(self.G.nodes()),-1)]
         self.adj_vec = np.array(nx.to_numpy_matrix(self.G, weight='weight'))[np.tril_indices(len(self.G.nodes()),-1)]
 
-    def parameter_graph(self, model, param_info, input_size, ignore_zeros=False):
+    def parameter_graph(self, model, param_info, input_size, ignore_zeros=False, update_indices=False):
         '''Returns a networkx DiGraph representation of the model's parameter graph.
         Also instantiates the class's internal representations of the network.
 
@@ -605,7 +605,8 @@ class NNGraph(object):
         G  = to_directed_networkx(self.current_param_info, self.input_size, format_func=self.format_func, weight_func=self.weight_func, ignore_zeros=ignore_zeros)
         if self.undirected:
             self.G = G.to_undirected()
-        self.update_indices()
+        if update_indices:
+            self.update_indices()
         return G
 
     def symmetrize(self):
