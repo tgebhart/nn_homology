@@ -80,7 +80,7 @@ def conv_layer_as_matrix(X, X_names, W, stride, padding):
 
 def add_conv(G, input_size, p, name_this, name_next, stride, padding, next_linear=False,
             X=None, I=0, format_func=format_func, weight_func=inverse_abs_zero,
-            ignore_zeros=False):
+            threshold=None):
     '''Adds a convolutional layer to graph and returns updated graph. If X is
     given, compute the activation graph, otherwise compute the parameter graph.
 
@@ -124,7 +124,7 @@ def add_conv(G, input_size, p, name_this, name_next, stride, padding, next_linea
             wix = I + f*W_col.shape[1] + row
             for col in range(X_col.shape[1]):
                 v = W_col[f,row] * X_col[row,col]
-                if not ignore_zeros or v != 0:
+                if threshold is None or weight_func(v) < threshold:
                     if next_linear:
                         # next layer is linear
                         G.add_edge(format_func(name_this,c,xnames[row%filt_size,col]),format_func(name_next,0,int((X_col.shape[1]*c) + (f*X_col.shape[1]) + col)), weight=weight_func(v), idx=wix)
@@ -192,7 +192,7 @@ def add_mp_act(G, X, name_this, name_next, kernel_size, stride, padding, weight_
     return G, input_size
 
 def add_linear_linear(G, p, name_this, name_next, X=None, I=0, format_func=format_func,
-                    weight_func=inverse_abs_zero, ignore_zeros=False):
+                    weight_func=inverse_abs_zero, threshold=None):
     '''Adds linear layer to graph and returns updated graph. If X is given,
     compute the activation graph, otherwise compute the parameter graph. This
     function creates a graphical representation of the matrix multiply operation.
@@ -223,12 +223,12 @@ def add_linear_linear(G, p, name_this, name_next, X=None, I=0, format_func=forma
         for col in range(p.shape[0]):
             wix = I + col*p.shape[1] + row
             v = p[col,row]
-            if not ignore_zeros or v != 0:
+            if threshold is None or weight_func(v) < threshold:
                 G.add_edge(format_func(name_this,0,row),format_func(name_next,0,col), weight=weight_func(v), idx=wix)
     return G, wix+1
 
 def to_directed_networkx(params, input_size, format_func=format_func,
-                        weight_func=inverse_abs_zero, ignore_zeros=False):
+                        weight_func=inverse_abs_zero, threshold=None):
     '''Create networkx representation of parameter graph of neural network. This
     function takes a list of parameter values and a list of activation values,
     both in the form of a list of numpy arrays (converted from pytorch tensor),
@@ -276,7 +276,7 @@ def to_directed_networkx(params, input_size, format_func=format_func,
                                     param_next['name'], param['stride'],
                                     param['padding'], next_linear=False, I=I,
                                     format_func=format_func, weight_func=weight_func,
-                                    ignore_zeros=ignore_zeros)
+                                    threshold=threshold)
 
             elif param_next['layer_type'] == 'Linear':
 
@@ -284,7 +284,7 @@ def to_directed_networkx(params, input_size, format_func=format_func,
                                     param_next['name'], param['stride'],
                                     param['padding'], next_linear=True, I=I,
                                     format_func=format_func, weight_func=weight_func,
-                                    ignore_zeros=ignore_zeros)
+                                    threshold=threshold)
 
         elif param['layer_type'] == 'MaxPool2d':
 
@@ -306,7 +306,7 @@ def to_directed_networkx(params, input_size, format_func=format_func,
             # linear layer
             G, I = add_linear_linear(G, param['param'], param['name'], param_next['name'],
                                     I=I, format_func=format_func, weight_func=weight_func,
-                                    ignore_zeros=ignore_zeros)
+                                    threshold=threshold)
 
         elif param['layer_type'] == 'Shortcut':
 
@@ -317,7 +317,7 @@ def to_directed_networkx(params, input_size, format_func=format_func,
                                 to_name, param['stride'],
                                 param['padding'], next_linear=False, I=I,
                                 format_func=format_func, weight_func=weight_func,
-                                ignore_zeros=ignore_zeros)
+                                threshold=threshold)
 
         else:
             raise ValueError('Layer type not implemented ')
@@ -326,7 +326,7 @@ def to_directed_networkx(params, input_size, format_func=format_func,
     print('Layer: {}'.format(params[-1]['name']))
     G, I = add_linear_linear(G, params[-1]['param'], params[-1]['name'], 'Output',
                             I=I, format_func=format_func, weight_func=weight_func,
-                            ignore_zeros=ignore_zeros)
+                            threshold=threshold)
     return G
 
 def to_directed_networkx_activations(params, activations, format_func=format_func,
@@ -579,7 +579,7 @@ class NNGraph(object):
         self.graph_idx_vec = np.array(nx.to_numpy_matrix(self.G, weight='idx', dtype='int'))[np.tril_indices(len(self.G.nodes()),-1)]
         self.adj_vec = np.array(nx.to_numpy_matrix(self.G, weight='weight'))[np.tril_indices(len(self.G.nodes()),-1)]
 
-    def parameter_graph(self, model, param_info, input_size, ignore_zeros=False, update_indices=False):
+    def parameter_graph(self, model, param_info, input_size, ignore_zeros=False, update_indices=False, threshold=None):
         '''Returns a networkx DiGraph representation of the model's parameter graph.
         Also instantiates the class's internal representations of the network.
 
@@ -600,11 +600,12 @@ class NNGraph(object):
         params = get_weights(model)
         # add `param` key to `param_info` list of dicts
         param_info = append_params(param_info, params)
-
+        threshold = self.weight_func(0.0) if ignore_zeros else threshold
         self.current_param_info = param_info
-        G  = to_directed_networkx(self.current_param_info, self.input_size, format_func=self.format_func, weight_func=self.weight_func, ignore_zeros=ignore_zeros)
+        G  = to_directed_networkx(self.current_param_info, self.input_size, format_func=self.format_func, weight_func=self.weight_func, threshold=threshold)
         if self.undirected:
-            self.G = G.to_undirected()
+            G = G.to_undirected()
+        self.G = G
         if update_indices:
             self.update_indices()
         return G
