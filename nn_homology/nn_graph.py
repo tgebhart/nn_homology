@@ -118,6 +118,7 @@ def add_conv(G, input_size, p, name_this, name_next, stride, padding, next_linea
     filt_size = p.shape[2]*p.shape[3]
     # convert to matrix information
     mat, X_col, W_col, xnames = conv_layer_as_matrix(tx,X_names,p,stride,padding)
+
     for f in range(W_col.shape[0]):
         for row in range(X_col.shape[0]):
             c = row//filt_size
@@ -608,7 +609,6 @@ class NNGraph(object):
         self.G = G
         if update_indices:
             self.update_indices()
-        return G
 
     def symmetrize(self):
         self.G = self.G.to_undirected()
