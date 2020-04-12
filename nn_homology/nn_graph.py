@@ -229,7 +229,7 @@ def add_linear_linear(G, p, name_this, name_next, X=None, I=0, format_func=forma
     return G, wix+1
 
 def to_directed_networkx(params, input_size, format_func=format_func,
-                        weight_func=inverse_abs_zero, threshold=None):
+                        weight_func=inverse_abs_zero, threshold=None, verbose=True):
     '''Create networkx representation of parameter graph of neural network. This
     function takes a list of parameter values and a list of activation values,
     both in the form of a list of numpy arrays (converted from pytorch tensor),
@@ -266,7 +266,7 @@ def to_directed_networkx(params, input_size, format_func=format_func,
         if param_next['layer_type'] == 'Shortcut':
             param_next = params[l+2]
 
-        print('Layer: {}'.format(param['name']))
+        if verbose: print('Layer: {}'.format(param['name']))
 
         # check the layer type to decide how to process
         if param['layer_type'] == 'Conv2d':
@@ -324,7 +324,7 @@ def to_directed_networkx(params, input_size, format_func=format_func,
             raise ValueError('Layer type not implemented ')
 
     # add in last layer
-    print('Layer: {}'.format(params[-1]['name']))
+    if verbose: print('Layer: {}'.format(params[-1]['name']))
     G, I = add_linear_linear(G, params[-1]['param'], params[-1]['name'], 'Output',
                             I=I, format_func=format_func, weight_func=weight_func,
                             threshold=threshold)
@@ -580,7 +580,8 @@ class NNGraph(object):
         self.graph_idx_vec = np.array(nx.to_numpy_matrix(self.G, weight='idx', dtype='int'))[np.tril_indices(len(self.G.nodes()),-1)]
         self.adj_vec = np.array(nx.to_numpy_matrix(self.G, weight='weight'))[np.tril_indices(len(self.G.nodes()),-1)]
 
-    def parameter_graph(self, model, param_info, input_size, ignore_zeros=False, update_indices=False, threshold=None):
+    def parameter_graph(self, model, param_info, input_size, ignore_zeros=False,
+                        update_indices=False, threshold=None, verbose=False):
         '''Returns a networkx DiGraph representation of the model's parameter graph.
         Also instantiates the class's internal representations of the network.
 
@@ -603,7 +604,9 @@ class NNGraph(object):
         param_info = append_params(param_info, params)
         threshold = self.weight_func(0.0) if ignore_zeros else threshold
         self.current_param_info = param_info
-        G  = to_directed_networkx(self.current_param_info, self.input_size, format_func=self.format_func, weight_func=self.weight_func, threshold=threshold)
+        G  = to_directed_networkx(self.current_param_info, self.input_size,
+                                format_func=self.format_func, weight_func=self.weight_func,
+                                threshold=threshold, verbose=verbose)
         if self.undirected:
             G = G.to_undirected()
         self.G = G
