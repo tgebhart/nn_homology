@@ -165,32 +165,6 @@ def add_mp(G, input_size, name_this, name_next, kernel_size, stride, padding, ne
     input_size = [mat.shape[0], input_channels, mat.shape[2], mat.shape[3]]
     return G, input_size
 
-# under construction
-def add_mp_act(G, X, name_this, name_next, kernel_size, stride, padding, weight_func=inverse_abs, next_linear=False):
-    '''adds max pooling layer to graph and returns updated activation graph'''
-    conv_format = '{}_{}_{}'
-    p = np.ones((X.shape[0],X.shape[1],kernel_size[0],kernel_size[1]))
-    input_channels = p.shape[1]
-    # next layer also conv
-    for c in range(input_channels):
-        print('Channel: {}'.format(c))
-        X_names = np.arange(X.shape[2]*X.shape[3]).reshape((1,1,X.shape[2],X.shape[3]))
-        tx = X[:,c,:,:].reshape((X.shape[0],1,X.shape[2],X.shape[3]))
-        # convert to matrix information
-        mat, X_col, W_col, xnames = conv_layer_as_matrix(tx,X_names,p[:,c,:,:].reshape((p.shape[0],1,p.shape[2],p.shape[3])),stride,padding)
-        for f in range(W_col.shape[0]):
-            for row in range(X_col.shape[0]):
-                for col in range(X_col.shape[1]):
-                    v = W_col[f,row] * X_col[row,col]
-                    if v != 0:
-                        if next_linear:
-                            # next layer is linear
-                            G.add_edge(conv_format.format(name_this,c,xnames[row,col]),conv_format.format(name_next,0,int((X_col.shape[1]*c) + (f*X_col.shape[1]) + col)), weight=weight_func(v))
-                        else:
-                            # next layer is conv
-                            G.add_edge(conv_format.format(name_this,c,xnames[row,col]),conv_format.format(name_next,f,col), weight=weight_func(v))
-    input_size = [mat.shape[0], input_channels, mat.shape[2], mat.shape[3]]
-    return G, input_size
 
 def add_linear_linear(G, p, name_this, name_next, X=None, I=0, format_func=format_func,
                     weight_func=inverse_abs_zero, threshold=None):
@@ -245,6 +219,10 @@ def to_directed_networkx(params, input_size, format_func=format_func,
             a string.
         weight_func (callable, optional): a function to apply to the weight values.
             Should take a single float-like argument and return a float-like argument.
+        threshold (float, optional): a threshold value on added weights, if weights
+            are _above_ this threshold after the weight_func transformation, they
+            will not be added to the graph.
+        verbose (bool, optional): whether to print the status of graph creation.
 
     Returns:
         networkx.DiGraph: The networkx representation of the parameter network.
@@ -331,7 +309,7 @@ def to_directed_networkx(params, input_size, format_func=format_func,
     return G
 
 def to_directed_networkx_activations(params, activations, format_func=format_func,
-                        weight_func=inverse_abs_zero, ignore_zeros=False):
+                        weight_func=inverse_abs_zero, threshold=None, verbose=True):
     '''Create networkx representation of activation graph of neural network. This
     function takes a list of parameter values and a list of activation values,
     both in the form of a list of numpy arrays (converted from pytorch tensor),
@@ -342,6 +320,15 @@ def to_directed_networkx_activations(params, activations, format_func=format_fun
             at each layer.
         activations (list[numpy.array]): the activation values of the network at
             each layer.
+        format_func (callable, optional): node name format function. This
+            function should take three arguments (str, float, float) and return
+            a string.
+        weight_func (callable, optional): a function to apply to the weight values.
+            Should take a single float-like argument and return a float-like argument.
+        threshold (float, optional): a threshold value on added weights, if weights
+            are _above_ this threshold after the weight_func transformation, they
+            will not be added to the graph.
+        verbose (bool, optional): whether to print the status of graph creation.
 
     Returns:
         networkx.DiGraph: The networkx representation of the activation network.
@@ -351,6 +338,8 @@ def to_directed_networkx_activations(params, activations, format_func=format_fun
 
     # get first input size
     input_size = activations[0].shape
+
+    I = 1
 
     # assume last layer linear, loop over each layer and process
     for l in range(len(params)-1):
@@ -362,7 +351,7 @@ def to_directed_networkx_activations(params, activations, format_func=format_fun
 
         X = activations[l]
 
-        print('Layer: {}'.format(param['name']))
+        if verbose: print('Layer: {}'.format(param['name']))
 
         # check the layer type to decide how to process
 
@@ -373,18 +362,20 @@ def to_directed_networkx_activations(params, activations, format_func=format_fun
                 # convolutional layer followed by a conv layer or maxpool layer
 
                 # add edges and nodes of this layer to the networkx representation
-                G, input_size = add_conv(G, input_size, param['param'], param['name'],
+                G, input_size, I = add_conv(G, input_size, param['param'], param['name'],
                                     param_next['name'], param['stride'],
-                                    param['padding'], next_linear=False, X=X,
-                                    ignore_zeros=ignore_zeros)
+                                    param['padding'], next_linear=False, I=I,
+                                    format_func=format_func, weight_func=weight_func,
+                                    threshold=threshold, X=X)
 
             elif param_next['layer_type'] == 'Linear':
                 # convolutional layer followed by FC layer
 
-                G, input_size = add_conv(G, input_size, param['param'], param['name'],
+                G, input_size, I = add_conv(G, input_size, param['param'], param['name'],
                                     param_next['name'], param['stride'],
-                                    param['padding'], next_linear=True, X=X,
-                                    ignore_zeros=ignore_zeros)
+                                    param['padding'], next_linear=True, I=I,
+                                    format_func=format_func, weight_func=weight_func,
+                                    threshold=threshold, X=X)
 
         elif param['layer_type'] == 'MaxPool2d':
             # max pooling layer
@@ -392,28 +383,39 @@ def to_directed_networkx_activations(params, activations, format_func=format_fun
             if param_next['layer_type'] == 'Conv2d':
                 # maxpool layer followed by convolutional layer
 
-                G, input_size = add_mp_act(G, X, param['name'], param_next['name'],
+                G, input_size = add_mp(G, input_size, param['name'], param_next['name'],
                                     param['kernel_size'], param['stride'],
-                                    param['padding'], next_linear=False)
+                                    param['padding'], next_linear=False,
+                                    format_func=format_func)
 
             if param_next['layer_type'] == 'Linear':
                 # maxpool layer followed by linear layer
 
-                G, input_size = add_mp_act(G, X, param['name'], param_next['name'],
+                G, input_size = add_mp(G, input_size, param['name'], param_next['name'],
                                     param['kernel_size'], param['stride'],
-                                    param['padding'], next_linear=True)
+                                    param['padding'], next_linear=True,
+                                    format_func=format_func)
 
         elif param['layer_type'] == 'Linear':
+
+            if len(X.shape) == 4:
+                X = X.reshape(-1,X.shape[1]*X.shape[2]*X.shape[3])
             # linear layer. Assume next layer is also going to be linear
-            G = add_linear_linear(G, param['param'], param['name'], param_next['name'], X=X)
+            G, I = add_linear_linear(G, param['param'], param['name'], param_next['name'],
+                                    I=I, format_func=format_func, weight_func=weight_func,
+                                    threshold=threshold, X=X)
 
         else:
             raise ValueError('Layer type not implemented ')
 
+    X = activations[l+1]
     # add in last layer and assume linear
-    print('Layer: {}'.format(params[-1]['name']))
-    G = add_linear_linear(G, params[-1]['param'], params[-1]['name'], 'Output',
-                        X=X, ignore_zeros=ignore_zeros)
+    if verbose: print('Layer: {}'.format(params[-1]['name']))
+    if len(X.shape) == 4:
+        X = X.reshape(-1,X.shape[1]*X.shape[2]*X.shape[3])
+    G, I = add_linear_linear(G, params[-1]['param'], params[-1]['name'], 'Output',
+                            I=I, format_func=format_func, weight_func=weight_func,
+                            threshold=threshold, X=X)
 
     return G
 
@@ -480,7 +482,7 @@ def get_activations(model, data):
     # concatenate all the outputs we saved to get the the activations for each layer for the whole dataset
     activations = {name: torch.cat(outputs, 0).data.numpy() for name, outputs in activations.items()}
 
-    return [v for k,v in activations.items()]
+    return [data] + [v for k,v in activations.items()]
 
 def parameter_graph(model, param_info, input_size):
     '''Returns a networkx DiGraph representation of the model's parameter graph.
@@ -503,7 +505,8 @@ def parameter_graph(model, param_info, input_size):
 
     return to_directed_networkx(param_info, input_size)
 
-def activation_graph(model, param_info, data):
+def activation_graph(model, param_info, data, ignore_zeros=False, weight_func=inverse_abs_zero,
+                    threshold=None, verbose=False, format_func=format_func):
     '''Returns a networkx DiGraph representation of the model's activation graph
     for a given input `data`.
 
@@ -512,6 +515,17 @@ def activation_graph(model, param_info, data):
         param_info (list[dict]): a list of dictionaries describing the model's
             architecture.
         data (torch.Tensor): an input to the model.
+        ignore_zeros (bool, optional): whether to filter out zero activation
+            weights from the network.
+        weight_func (callable, optional): a function to apply to each weight value,
+            should be well-defined for numpy arrays, accepting and returning floats.
+        threshold (float, optional): a threshold value on added weights, if weights
+            are _above_ this threshold after the weight_func transformation, they
+            will not be added to the graph.
+        verbose (bool, optional): whether to print the status of graph creation.
+        format_func (callable, optional): node name format function. This
+            function should take three arguments (str, float, float) and return
+            a string.
 
     Returns:
         networkx.DiGraph: the activation graph representation of the model.
@@ -523,7 +537,11 @@ def activation_graph(model, param_info, data):
     # get activations from network, given inputs in `data`
     activations = get_activations(model, data)
 
-    return to_directed_networkx_activations(param_info, activations)
+    threshold = weight_func(0.0) if ignore_zeros else threshold
+
+    return to_directed_networkx_activations(param_info, activations,
+            format_func=format_func, weight_func=weight_func, threshold=threshold,
+            verbose=verbose)
 
 def flatten_params(param_info):
     '''Flattens parameter vectors so as to match the flattening that happens
@@ -551,6 +569,26 @@ def flatten_params(param_info):
 
     return param_vec
 
+def inverse_flatten_params(params, param_info):
+    param_vecs = []
+    idx_start = 1
+    for param in param_info:
+        if param['layer_type'] == 'Conv2d':
+            p = param['param']
+            flattened = p.reshape(p.shape[0],-1).flatten()
+            param_to_expand = params[idx_start:idx_start+flattened.shape[0]]
+            idx_start += flattened.shape[0]
+            param_to_expand = param_to_expand.reshape(p.shape[0],-1).reshape(p.shape)
+            param_vecs.append(param_to_expand)
+        if param['layer_type'] == 'Linear':
+            p = param['param']
+            flattened = p.flatten()
+            param_to_expand = params[idx_start:idx_start+flattened.shape[0]]
+            idx_start += flattened.shape[0]
+            param_vecs.append(param_to_expand.reshape(p.shape))
+
+    return param_vecs
+
 class NNGraph(object):
 
     def __init__(self, weight_func=inverse_abs_zero, format_func=format_func,
@@ -577,8 +615,8 @@ class NNGraph(object):
         self.undirected = undirected
 
     def update_indices(self):
-        self.graph_idx_vec = np.array(nx.to_numpy_matrix(self.G, weight='idx', dtype='int'))[np.tril_indices(len(self.G.nodes()),-1)]
-        self.adj_vec = np.array(nx.to_numpy_matrix(self.G, weight='weight'))[np.tril_indices(len(self.G.nodes()),-1)]
+        self.graph_idx_vec = np.array(nx.to_numpy_matrix(self.G, weight='idx', dtype='int'))[np.triu_indices(len(self.G.nodes()),-1)]
+        self.adj_vec = np.array(nx.to_numpy_matrix(self.G, weight='weight'))[np.triu_indices(len(self.G.nodes()),-1)]
 
     def parameter_graph(self, model, param_info, input_size, ignore_zeros=False,
                         update_indices=False, threshold=None, verbose=False):
@@ -625,7 +663,6 @@ class NNGraph(object):
         R[i,j] = self.adj_vec
         R[j,i] = self.adj_vec
         return R
-        # return squareform(self.adj_vec)
 
     def get_idx_adjacency(self):
         '''returns adjacency matrix from its flattened form.'''
