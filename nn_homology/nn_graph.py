@@ -16,6 +16,10 @@ def inverse_abs_zero(x):
 def format_func(name, channel, i):
     return '{}_{}_{}'.format(name, channel, i)
 
+def format_func_to_channel(form):
+    nums = form.split('_')
+    return int(nums[1])
+
 def get_im2col_indices(x_shape, field_height, field_width, padding=1, stride=1):
     # First figure out what the size of the output should be
     N, C, H, W = x_shape
@@ -65,6 +69,7 @@ def col2im_indices(cols, x_shape, field_height=3, field_width=3, padding=1,
 def conv_layer_as_matrix(X, X_names, W, stride, padding):
     n_filters, d_filter, h_filter, w_filter = W.shape
     n_x, d_x, h_x, w_x = X.shape
+
     h_out = (h_x - h_filter + 2 * padding) / stride + 1
     w_out = (w_x - w_filter + 2 * padding) / stride + 1
 
@@ -118,9 +123,9 @@ def add_conv(G, input_size, p, name_this, name_next, stride, padding, next_linea
     filt_size = p.shape[2]*p.shape[3]
     # convert to matrix information
     mat, X_col, W_col, xnames = conv_layer_as_matrix(tx,X_names,p,stride,padding)
-
-    for f in range(W_col.shape[0]):
-        for row in range(X_col.shape[0]):
+    # print('input_size:', input_size, 'mat:', mat.shape, 'X_col:', X_col.shape, 'W_col:', W_col.shape)
+    for row in range(X_col.shape[0]):
+        for f in range(W_col.shape[0]):
             c = row//filt_size
             wix = I + f*W_col.shape[1] + row
             for col in range(X_col.shape[1]):
@@ -128,7 +133,7 @@ def add_conv(G, input_size, p, name_this, name_next, stride, padding, next_linea
                 if threshold is None or weight_func(v) < threshold:
                     if next_linear:
                         # next layer is linear
-                        G.add_edge(format_func(name_this,c,xnames[row%filt_size,col]),format_func(name_next,0,int((X_col.shape[1]*c) + (f*X_col.shape[1]) + col)), weight=weight_func(v), idx=wix)
+                        G.add_edge(format_func(name_this,c,xnames[row%filt_size,col]),format_func(name_next,0,(f*X_col.shape[1]) + col), weight=weight_func(v), idx=wix)
                     else:
                         # next layer is conv
                         G.add_edge(format_func(name_this,c,xnames[row%filt_size,col]),format_func(name_next,f,col), weight=weight_func(v), idx=wix)
@@ -164,6 +169,56 @@ def add_mp(G, input_size, name_this, name_next, kernel_size, stride, padding, ne
                         G.add_edge(format_func(name_this,c,xnames[row%filt_size,col]),format_func(name_next,f,col), weight=v, idx=wix)
     input_size = [mat.shape[0], input_channels, mat.shape[2], mat.shape[3]]
     return G, input_size
+
+
+def add_shortcut(G, input_size, p, name_this, name_next, stride, padding, next_linear=False,
+            X=None, I=0, format_func=format_func, weight_func=inverse_abs_zero,
+            threshold=None, format_func_to_channel=format_func_to_channel):
+    '''Adds a convolutional layer to graph and returns updated graph. If X is
+    given, compute the activation graph, otherwise compute the parameter graph.
+
+    Args:
+        G (networkx.Graph): the networkx representation of the graph to which to
+            add the linear layer.
+        input_size (tuple): the input size to the layer in form
+            (batch, channels, height, width).
+        p (numpy.array): a numpy representation of the parameters of the layer
+            of dimensionality [|l+1|,|l|] where |l| represents the number of
+            nodes in layer l and |l+1| represents the number of nodes in the
+            following layer.
+        name_this (str): the name of layer l.
+        name_next (str): the name of layer l+1.
+        stride (int): the stride of the convolutional operation.
+        padding (int): the padding of the convolutional operation.
+        next_linear (bool, optional): boolean for whether the next layer is linear.
+        X (numpy.array, optional): the activation values at each node in layer l.
+        I (int, optional): the running index value.
+        format_func (callable, optional): node name format function. This
+            function should take three arguments (str, float, float) and return
+            a string.
+        weight_func (callable, optional): a function to apply to the weight values.
+            Should take a single float-like argument and return a float-like argument.
+
+    Returns:
+        (networkx.Graph, tuple, int): a tuple representing the updated networkx graph,
+            the new input size, and the running parameter index.
+    '''
+    input_channels = p.shape[1]
+    output_channels = p.shape[0]
+
+    in_nodes = [n for n in G.nodes() if name_this in n]
+    out_nodes = [n for n in G.nodes() if name_next in n]
+
+    for innode in in_nodes:
+        inc = format_func_to_channel(innode)
+        for outnode in out_nodes:
+            outc = format_func_to_channel(outnode)
+            v = p[outc,inc,0,0]
+            wix = I + inc + outc
+            if threshold is None or weight_func(v) < threshold:
+                G.add_edge(innode, outnode, weight=weight_func(v), idx=wix)
+    wix = I + input_channels + output_channels
+    return G, wix+1
 
 
 def add_linear_linear(G, p, name_this, name_next, X=None, I=0, format_func=format_func,
@@ -290,9 +345,14 @@ def to_directed_networkx(params, input_size, format_func=format_func,
         elif param['layer_type'] == 'Shortcut':
 
             # get the layers the shortcut connects
-            from_name = params[param['connects'][0]]
-            to_name = params[param['connects'][1]]
-            G, input_size, I = add_conv(G, input_size, param['param'], from_name,
+            from_name = params[param['connects'][0]]['name']
+            to_name = params[param['connects'][1]]['name']
+            # G, I = add_shortcut(G, input_size, param['param'], from_name,
+            #                     to_name, param['stride'],
+            #                     param['padding'], next_linear=False, I=I,
+            #                     format_func=format_func, weight_func=weight_func,
+            #                     threshold=threshold)
+            G, _, I = add_conv(G, input_size, np.transpose(param['param'], (1,0,2,3)), from_name,
                                 to_name, param['stride'],
                                 param['padding'], next_linear=False, I=I,
                                 format_func=format_func, weight_func=weight_func,
@@ -431,18 +491,34 @@ def get_weights(model, tensors=False):
             params.append(pnum)
     return params
 
-def append_params(param_info, params):
+def append_params(param_info, params, normalize=False):
     '''Helper function to append pytorch parameters to parameter information.'''
     j = 0
     for i in range(len(param_info)):
         p = param_info[i]
-        if p['layer_type'] == 'Conv2d' or p['layer_type'] == 'Linear' or p['layer_type'] == 'Shortcut':
+
+        if 'param_idx' in p:
+            p['param'] = params[p['param_idx']]
+            j += 1
+
+        elif p['layer_type'] == 'Conv2d' or p['layer_type'] == 'Linear' or p['layer_type'] == 'Shortcut':
             # if ndim == 1, probably batch norm, pass
             if params[j].ndim > 1:
-                p['param'] = params[j]
+                param = params[j]
             else:
                 j += 1
-                p['param'] = params[j]
+                param = params[j]
+
+            if normalize:
+                if param.ndim == 2:
+                    param = param / np.linalg.norm(param)
+                    # param = (param - np.mean(param))/np.std(param)
+                if param.ndim == 4:
+                    for f in range(param.shape[0]):
+                        # param[f,:,:,:] = (param[f,:,:,:] - np.mean(param[f,:,:,:]))/np.std(param[f,:,:,:])
+                        param[f,:,:,:] = param[f,:,:,:] / np.linalg.norm(param[f,:,:,:])
+
+            p['param'] = param
             j += 1
         else:
             p['param'] = None
@@ -556,7 +632,7 @@ def flatten_params(param_info):
     '''
     param_vecs = []
     for param in param_info:
-        if param['layer_type'] == 'Conv2d':
+        if param['layer_type'] == 'Conv2d' or param['layer_type'] == 'Shortcut':
             p = param['param']
             param_vecs.append(p.reshape(p.shape[0],-1).flatten())
         if param['layer_type'] == 'Linear':
@@ -573,7 +649,7 @@ def inverse_flatten_params(params, param_info):
     param_vecs = []
     idx_start = 1
     for param in param_info:
-        if param['layer_type'] == 'Conv2d':
+        if param['layer_type'] == 'Conv2d' or param['layer_type'] == 'Shortcut':
             p = param['param']
             flattened = p.reshape(p.shape[0],-1).flatten()
             param_to_expand = params[idx_start:idx_start+flattened.shape[0]]
@@ -615,11 +691,11 @@ class NNGraph(object):
         self.undirected = undirected
 
     def update_indices(self):
-        self.graph_idx_vec = np.array(nx.to_numpy_matrix(self.G, weight='idx', dtype='int'))[np.triu_indices(len(self.G.nodes()),-1)]
-        self.adj_vec = np.array(nx.to_numpy_matrix(self.G, weight='weight'))[np.triu_indices(len(self.G.nodes()),-1)]
+        self.graph_idx_vec = np.array(nx.to_numpy_matrix(self.G, weight='idx', dtype='int'))[np.tril_indices(len(self.G.nodes()),-1)]
+        self.adj_vec = np.array(nx.to_numpy_matrix(self.G, weight='weight'))[np.tril_indices(len(self.G.nodes()),-1)]
 
     def parameter_graph(self, model, param_info, input_size, ignore_zeros=False,
-                        update_indices=False, threshold=None, verbose=False):
+                        update_indices=False, threshold=None, verbose=False, normalize=False):
         '''Returns a networkx DiGraph representation of the model's parameter graph.
         Also instantiates the class's internal representations of the network.
 
@@ -639,9 +715,9 @@ class NNGraph(object):
         # get parameters from named parameters of model
         params = get_weights(model)
         # add `param` key to `param_info` list of dicts
-        param_info = append_params(param_info, params)
-        threshold = self.weight_func(0.0) if ignore_zeros else threshold
+        param_info = append_params(param_info, params, normalize=normalize)
         self.current_param_info = param_info
+        threshold = self.weight_func(0.0) if ignore_zeros else threshold
         G  = to_directed_networkx(self.current_param_info, self.input_size,
                                 format_func=self.format_func, weight_func=self.weight_func,
                                 threshold=threshold, verbose=verbose)
